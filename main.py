@@ -1,65 +1,82 @@
 import cv2
 import os
+import numpy as np
 from  Libs.Detector import  Num_detector
+from Libs.Init_platform import *
+from  Libs.Platform import Platform
+from Libs.Visualization_utils import *
 
+
+# Uncommet to use CPU
 #os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-
 PROJECT_DIR = os.getcwd()
 
-
 # There are pathes to detector and classifier files.
-DATA_PATH = PROJECT_DIR + "/data/"
-DETECTOR_NAME = "detector/ssd13.pb"
-DETECTOR_LABELS_NAME = "detector/label_map.pbtxt"
-CLASSIFIER_NAME = "classifier/output_graph.pb"
-CLASSIFIER_LABELS_NAME = "classifier/output_labels.txt"
+DATA_PATH = os.path.join(PROJECT_DIR , "data")
+DETECTOR_NAME = os.path.join(DATA_PATH, "detector/rcnn_22925.pb")
+DETECTOR_LABELS_NAME = os.path.join(DATA_PATH, "detector/label_map.pbtxt")
+CLASSIFIER_NAME = os.path.join(DATA_PATH, "classifier/output_graph.pb")
+CLASSIFIER_LABELS_NAME = os.path.join(DATA_PATH, "classifier/output_labels.txt")
+COLORS_PATH = os.path.join(DATA_PATH, "colors.txt")
+
+# IP camera parametrs
+camera_params = np.load(os.path.join(DATA_PATH, "ip_cam_params.npz"))
+
+newcameramtx = camera_params["newcameramtx"]
+roi = camera_params["roi"]
+mtx = camera_params["mtx"]
+dist = camera_params["dist"]
+
+undist_params = [mtx, dist, newcameramtx, roi]
 
 # Initialize camera's stream and visualization window.
-stream = cv2.VideoCapture(0)
+stream = cv2.VideoCapture("/home/user/PycharmProjects/computing_distanse/246.mp4")
 WIDTH, HEIGHT = 640, 480
 IMAGE_CENTER = (WIDTH//2, HEIGHT//2)
 cv2.namedWindow("Image", cv2.WINDOW_NORMAL)
+cv2.namedWindow("vis_image", cv2.WINDOW_NORMAL)
+
 
 # Initialize detector.
-detector =Num_detector(DATA_PATH+DETECTOR_NAME, DATA_PATH+DETECTOR_LABELS_NAME,
-                       DATA_PATH+CLASSIFIER_NAME, DATA_PATH+CLASSIFIER_LABELS_NAME)
+detector =Num_detector(DETECTOR_NAME, DETECTOR_LABELS_NAME,
+                                         CLASSIFIER_NAME, CLASSIFIER_LABELS_NAME)
 
 # While RUN is True the programm will be running.
 RUN = True
 
-# Draw X mark in the center of image.
-def draw_img_center(img, w, h):
-    cv2.line(img, (0, h//2), (w, h//2), (255, 0, 0), thickness=2)
-    cv2.line(img, (w//2, 0), (w//2, h), (255, 0, 0), thickness=2)
+def main():
+    RUN = True
+    platforms_lst= init_platforms(stream, detector, undist_params,
+                                  frames_count=30, img_resize=(640, 360),
+                                  colors_path=COLORS_PATH)
 
+    platforms = [Platform(p[0], p[1], p[2]) for p in platforms_lst]
+    ret, img = stream.read()
 
-def main(RUN):
-    ret, img = stream.read()        # Read data from camera
-    img = cv2.resize(img, (WIDTH, HEIGHT))
-    heigth, width, _ = img.shape    # Get image shape
-    print(heigth, width)
-    if ret:                         # If camea returns data
-        img2, boxes_dict  = detector.detect_objects(img)    # Get boxes of objects and drawing them
-        #draw_img_center(img2, width, heigth)
-        for box in boxes_dict:                         
-            number = detector.classificate_number(img, boxes_dict[box], heigth, width)      # Classificate data
-            cntr = detector.get_box_center(boxes_dict[box], width, heigth)                  # Compute boxes center
-            #print(cntr)
-            cv2.circle(img2, cntr, 5, (0, 0, 255), 5)                                       # Draw center
-            cv2.putText(img2, number, (10, 30), 2, 1, (255, 0, 0), thickness=2)             # Put class data on image
-            distance_in_pix = detector.compute_distance(cntr, IMAGE_CENTER)
-            #cv2.putText(img2, str(distance_in_pix), (10, 40), 1, 1, (255, 0, 0), thickness=3)# Put distance data on image
-        cv2.imshow("Image", img2)                                                           # Show image
-        if cv2.waitKey(10) & 0xFF == 27:                                                    # If press ESC RUN = False
+    #Undistortion doesn't work!
+    #img = undistort_img(img, undist_params)
+    img = cv2.resize(img, (640, 360))
+    h, w, _ = img.shape
+
+    for p in platforms:
+        pt1, pt2 = p.get_bbox(w, h)
+        bbox = p.init_tracker_bbox(pt1, pt2)
+        p.create_tracker(img, bbox)
+        p.update_position(bbox)
+
+    while RUN and stream.isOpened():
+        ret, img = stream.read()
+        #img = undistort_img(img,undist_params)
+        img = cv2.resize(img, (640, 360))
+        vis_img = img.copy()
+        for p in platforms:
+            bbox = p.update_tracker(img)
+            if bbox:
+                p.update_position(bbox)
+                draw_trajectory(vis_img, p.trajectory, p._color)
+        cv2.imshow("vis_image", vis_img)
+        if cv2.waitKey(10) & 0xFF == 27 or not ret:
             RUN = not RUN
-    else:
-        print("Cannot fint camera!")
-        RUN = not RUN
-    return RUN
 
 if __name__ == "__main__":
-    while RUN:
-        RUN = main(RUN)
-
-    stream.release()
-    cv2.destroyAllWindows()
+    main()

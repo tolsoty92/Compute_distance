@@ -3,8 +3,8 @@ import os
 import tensorflow as tf
 import numpy as np
 from math import sqrt
-from Label_map_util import *
-from Visualization_utils import visualize_boxes_and_labels_on_image_array
+from Libs.Label_map_util import *
+from Libs.Visualization_utils import visualize_boxes_and_labels_on_image_array
 
 class Num_detector:
 
@@ -21,7 +21,7 @@ class Num_detector:
         self.scores = self.detection_graph.get_tensor_by_name('detection_scores:0')
 
         self.label_map = load_labelmap(path_to_labels)
-        categories = convert_label_map_to_categories(self.label_map, max_num_classes=10,
+        categories = convert_label_map_to_categories(self.label_map, max_num_classes=1,
                                                                     use_display_name=True)
         self.category_index = create_category_index(categories)
 
@@ -37,6 +37,7 @@ class Num_detector:
             self.softmax_tensor = self.classifier_sess.graph.get_tensor_by_name('final_result:0')
 
     def detect_objects(self, img):
+
         # Expand dimensions since the model expects images to have shape: [1, None, None, 3]
         image_np = img.copy()
         image_np_expanded = np.expand_dims(image_np, axis=0)
@@ -48,6 +49,7 @@ class Num_detector:
         # Each score represent how level of confidence for each of the objects.
         # Score is shown on the result image, together with the class label.
         scores = self.detection_graph.get_tensor_by_name('detection_scores:0')
+
         classes = self.detection_graph.get_tensor_by_name('detection_classes:0')
         num_detections = self.detection_graph.get_tensor_by_name('num_detections:0')
 
@@ -55,17 +57,22 @@ class Num_detector:
         (boxes, scores, classes, num_detections) = self.sess.run(
             [boxes, scores, classes, num_detections],
             feed_dict={image_tensor: image_np_expanded})
-
+        boxes_lst = []
+        for box in boxes[0]:
+            if  any(box):
+                boxes_lst.append(box)
+        #boxes_lst.append(list(box for box in boxes[0] if box != [0, 0, 0, 0]))
         # Visualization of the results of a detection.
-        img, boxes_dict = visualize_boxes_and_labels_on_image_array(
-            image_np,
-            np.squeeze(boxes),
-            np.squeeze(classes).astype(np.int32),
-            np.squeeze(scores),
-            self.category_index,
-            use_normalized_coordinates=True,
-            line_thickness=4, max_boxes_to_draw=10)
-        return img, boxes_dict      # Return visualized image and boxes              
+        # img, boxes_dict = visualize_boxes_and_labels_on_image_array(
+        #     image_np,
+        #     np.squeeze(boxes),
+        #     np.squeeze(classes).astype(np.int32),
+        #     np.squeeze(scores),
+        #     self.category_index,
+        #     use_normalized_coordinates=True,
+        #     line_thickness=4, max_boxes_to_draw=10)
+
+        return boxes_lst      # Return visualized image and boxes
 
     def classificate_number(self, img, box, heigth, width):
         # Classificate data in box
@@ -73,6 +80,7 @@ class Num_detector:
         ymin, ymax = int(ymin*heigth), int(ymax*heigth)
         xmax, xmin =  int(xmax*width), int(xmin*width)
         number = img[ymin:ymax, xmin:xmax]
+        number = cv2.cvtColor(number, cv2.COLOR_BGR2GRAY)
         number_string = cv2.imencode('.jpg', number)[1].tostring()
         predictor = self.classifier_sess.run(self.softmax_tensor,
                                         {'DecodeJpeg/contents:0': number_string})
@@ -82,7 +90,11 @@ class Num_detector:
         for node_id in top_k:
              numbers.append(self.label_lines[node_id])
              scores.append(predictor[0][node_id])
+
         return(numbers[scores.index(max(scores))])  # Return class of object in box
+
+    def accurate_classificate(self):
+        pass
 
     def get_box_center(self, box, img_w, img_h):
         # Get box center
@@ -96,3 +108,14 @@ class Num_detector:
     def compute_distance(self, point1, point2):
         distance = sqrt((point1[0]-point2[0])**2 + (point1[1]-point2[1])**2)
         return distance
+
+    def tf_box_to_img_box(self, box, img_w, img_h):
+        y_min, x_min, y_max, x_max = box
+        x_min, x_max = int(x_min*img_w), int(x_max*img_w)
+        y_min, y_max = int(y_min * img_h), int(y_max * img_h)
+        pt1 = (x_min, y_min)
+        pt2 = (x_max, y_max)
+        return pt1, pt2
+
+
+
