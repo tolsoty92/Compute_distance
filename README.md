@@ -5,4 +5,4 @@ For computing the distance, two neural networks are used:
 Pretrained models: https://drive.google.com/open?id=1nvm2MWmkK_dgNjRnEzkAoRi5-lg3U10w
 Download data and put it in project root folder.
 
-![alt text](https://github.com/tolsoty92/Compute_distance/blob/master/demo.png)
+![alt text](https://github.com/tolsoty92/Compute_distance/blob/master/demo.gif?raw=true)
